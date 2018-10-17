@@ -16,11 +16,11 @@ three-part problem:
 - saving instance attributes,
 - saving relations like reverse relations or many to many.
 
-Django's ModelForm calls the model field's ``value_from_object()`` method to get
-the initial data. ``FutureModelForm`` tries the ``value_from_object()`` method
-from the form field instead, if defined. Unlike the model field, the form field
-doesn't know its name, so ``FutureModelForm`` passes it when calling the form
-field's ``value_from_object()`` method.
+Django's ModelForm calls the model field's ``value_from_object()`` method to
+get the initial data. ``FutureModelForm`` tries the ``value_from_object()``
+method from the form field instead, if defined. Unlike the model field, the
+form field doesn't know its name, so ``FutureModelForm`` passes it when calling
+the form field's ``value_from_object()`` method.
 
 Django's ModelForm calls the form field's ``save_form_data()`` in two
 occasions:
@@ -123,12 +123,10 @@ class FutureModelForm(forms.ModelForm):
         # Note that for historical reasons we want to include also
         # virtual_fields here. (GenericRelation was previously a fake
         # m2m field).
-        try:  # Django >= 2.0
-            private_fields = opts.private_fields
-        except AttributeError:  # Django < 2.0
-            private_fields = opts.virtual_fields
-
-        for f in chain(opts.many_to_many, private_fields):
+        virtual_fields = getattr(opts, 'virtual_fields', [])
+        if not virtual_fields:
+            virtual_fields = getattr(opts, 'private_fields', [])
+        for f in chain(opts.many_to_many, virtual_fields):
             # Added to give the form field a chance to do the work
             if f.name in handled:
                 continue
@@ -160,3 +158,18 @@ class FutureModelForm(forms.ModelForm):
             # saving of m2m data.
             self.save_m2m = self._save_m2m
         return self.instance
+
+    @classmethod
+    def as_urls(cls):
+        """
+        Create a list of url patterns, to be called in url.py.
+
+        urlpattern.append(*ModelForm.as_url())
+        Iterate over the fields to call the as_url() method from the
+        GenericForeignKeyField
+        """
+        return [
+            value.as_url(cls)
+            for key, value in cls.__dict__['declared_fields'].items()
+            if hasattr(value.__class__, 'as_url')
+        ]  # checks if its the right object

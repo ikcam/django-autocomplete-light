@@ -236,7 +236,7 @@ to return HTML code.
 .. code-block:: python
 
     from django.utils.html import format_html
-    
+
     class CountryAutocomplete(autocomplete.Select2QuerySetView):
         def get_result_label(self, item):
             return format_html('<img src="flags/{}.png"> {}', item.name, item.name)
@@ -251,9 +251,27 @@ to return HTML code.
                 )
             }
 
-
 .. note:: Take care to escape anything you put in HTML code to avoid XSS attacks
           when displaying data that may have been input by a user! `format_html` helps.
+
+Displaying selected result differently than in list
+===================================================
+
+You can display selected result in different way than results in list by overriding
+the view ``get_selected_result_label()`` method.
+
+.. code-block:: python
+
+    class CountryAutocomplete(autocomplete.Select2QuerySetView):
+        def get_result_label(self, item):
+            return item.full_name
+
+        def get_selected_result_label(self, item):
+            return item.short_name
+
+Setting the ``data-html`` attribute affects both selected result and results in list.
+If you want to enable HTML separately set ``data-selected-html`` or ``data-result-html``
+attribute respectively.
 
 Overriding javascript code
 ==========================
@@ -420,6 +438,25 @@ filter as such in the view:
 
             return qs
 
+Types of forwarded values
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are three possible types of value which you can get from
+``self.forwarded`` field: boolean, string or list of strings. DAL forward JS
+applies the following rules when figuring out which type to use when you forward
+particular field:
+
+ - if there is only one field in the form or subform with given name
+and this field is a checkbox without ``value`` HTML-attribute,
+then a boolean value indicating if this checkbox is checked is forwarded;
+ - if there is only one field in the form or subform with given name
+and it has ``multiple`` HTML-attribute, then this field is forwarded as a
+list of strings, containing values from this field.
+- if there are one or more fields in the form with given name and all of
+them are checkboxes with HTML-attribute ``value`` set, then the list of strings
+containing checked checkboxes is forwarded.
+- Otherwise field value forwarded as a string.
+
 Renaming forwarded values
 -------------------------
 - Example source code: `test_project/rename_forward
@@ -498,7 +535,6 @@ Of course, you can mix up string-based and class-based forwarding declarations:
                      forward.Const(42, 'f4')  # Constant forwarding (see below)
                      )
 
-
 Forwarding arbitrary constant values
 ------------------------------------
 
@@ -518,6 +554,105 @@ your form.
                 forward=(forward.Const('europe', 'continent'),)))
 
 For `src_country` field "europe" will always be forwarded as `continent` value.
+
+Forwarding own selected value
+-----------------------------
+
+Quite often (especially in multiselect) you may want to exclude value which is
+already selected from autocomplete dropdown. Usually it can be done by
+forwarding a field by name. The forward argument expects a tuple, 
+so don't forget the trailing comma if the tuple only has one element.
+
+
+.. code-block:: python
+
+    from dal import forward
+
+    class SomeForm(forms.Form):
+        countries = forms.ModelMultipleChoiceField(
+            queryset=Country.objects.all(),
+            widget=autocomplete.ModelSelect2Multiple(
+                url='country-autocomplete',
+                forward=("countries", )
+
+For this special case DAL provides a shortcut named ``Self()``.
+
+
+.. code-block:: python
+
+    from dal import forward
+
+    class SomeForm(forms.Form):
+        countries = forms.ModelMultipleChoiceField(
+            queryset=Country.objects.all(),
+            widget=autocomplete.ModelSelect2Multiple(
+                url='country-autocomplete',
+                forward=(forward.Self(),)
+
+
+In this case the value from ``countries`` will be available from autocomplete
+view as ``self.forwarded['self']``. Of course, you can customize destination
+name by passing ``dst`` parameter to ``Self`` constructor.
+
+Customizing forwarding logic
+----------------------------
+
+DAL tries hard to reasonably forward any standard HTML form field. For some
+non-standard fields DAL logic could be not good enough. For these cases DAL
+provides a way to customize forwarding logic using JS callbacks. You can
+register JS forward handler on your page:
+
+.. code-block::javascript
+
+    // autocompleteElem here is an HTML element for autocomplete field
+    yl.registerForwardHandler("my_awesome_handler", function (autocompleteElem) {
+        return doSomeMagicAndGetValueFromSpace();
+    });
+
+Then you should add forward declaration to your field as follows:
+
+.. code-block:: python
+
+    from dal import forward
+
+    class ShippingForm(forms.Form):
+        country = forms.ModelChoiceField(
+            queryset=Country.objects.all(),
+            widget=autocomplete.ModelSelect2(
+                url='country-autocomplete',
+                forward=(forward.JavaScript('my_awesome_handler', 'magic_number'),)))
+
+In this case the value returned from your registered handler will be forwarded
+to autocomplete view as ``magic_number``.
+
+Building blocks for custom logic
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Javascript logic for forwarding field values is a bit sophisticated. In order
+to forward field value DAL searches for the field considering form prefixes and
+then decides how to forward it to the server (should it be list, string or
+boolean value). When you implement your own logic for forwarding you may want
+to reuse this logic from DAL.
+
+For this purpose DAL provides two JS functions:
+
+ - ``getFieldRelativeTo(element, name)`` - get field by ``name`` relative to this
+autocomplete field just like DAL does when forwarding a field.
+ - ``getValueFromField(field)`` - get value to forward from ``field`` just like
+DAL does when forwarding a field.
+
+For the purpose of understanding the logic: you can implement forwarding of
+some standard field by yourself as follows (you probably should never write this
+code yourself):
+
+.. code-block::javascript
+
+    yl.registerForwardHandler("poormans_field_forward",
+        function (elem) {
+            return yl.getValueFromField(
+                yl.getFieldRelativeTo(elem, "some_field"));
+        });
+
 
 Clearing autocomplete on forward field change
 ---------------------------------------------
@@ -603,4 +738,4 @@ An opt-group version is available in a similar fashion by inheriting Select2Grou
             return [
                 ("Country", ['France', 'Fiji', 'Finland', 'Switzerland'])
             ]
- 
+
