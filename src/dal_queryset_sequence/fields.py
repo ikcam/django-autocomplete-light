@@ -25,6 +25,7 @@ class QuerySetSequenceFieldMixin(object):
             # querysetsequence < 0.9
             querysets = self.queryset.query._querysets
 
+        for queryset in querysets:
             if queryset.model.__name__ == 'QuerySequenceModel':
                 # django-queryset-sequence 0.7 support dynamically created
                 # QuerySequenceModel which replaces the original model when it
